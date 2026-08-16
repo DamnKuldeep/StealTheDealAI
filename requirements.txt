@@ -1,0 +1,37 @@
+# StealTheDealAI - local runtime dependencies.
+# Pinned to the versions verified working on this machine (Python 3.13, CUDA 12.7).
+#
+# torch: install the CUDA build from https://pytorch.org/get-started/locally/ BEFORE
+# running `pip install -r requirements.txt` on a fresh machine - a plain `pip install torch`
+# often grabs a CPU-only wheel. Left unpinned here (>=) so it never gets silently replaced.
+torch>=2.6.0
+
+python-dotenv==1.2.2
+openai==2.44.0
+pydantic==2.13.4
+gradio==6.15.2
+plotly==6.7.0
+pandas==3.0.3
+numpy==2.4.6
+scikit-learn==1.8.0
+chromadb==1.5.9
+sentence-transformers==5.4.1
+requests==2.32.5
+modal==1.4.2
+tqdm==4.67.3
+
+# Live deal crawling (SCAN_MODE="live" in config/settings.py). After installing,
+# also run `crawl4ai-setup` once to fetch its Playwright Chromium build - see SETUP.md.
+crawl4ai==0.9.2
+
+# Local notebook-only (data exploration/comparison notebooks run on this machine)
+matplotlib==3.10.8
+seaborn==0.13.2
+jupyterlab==4.5.7
+ipykernel==7.2.0
+
+# NOT included: transformers, peft, accelerate, trl, bitsandbytes, datasets.
+# Those are Kaggle-only training dependencies - notebooks/03_finetune_llm.ipynb
+# installs them itself (`!pip install ...`) inside the Kaggle notebook. The Modal
+# deployment (modal_deployments/pricer_service.py) also builds its own separate
+# remote container image with the inference-time subset of these.
