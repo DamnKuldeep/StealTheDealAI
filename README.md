@@ -127,9 +127,9 @@ honest](#keeping-the-ensemble-honest) for why) and independently guesses what it
 
 | Estimator | How it works | Measured median % error* | Ensemble weight |
 |---|---|---|---|
-| **Neural Network** ([`deep_neural_network.py`](agents/deep_neural_network.py)) | A local PyTorch DNN (10 residual blocks, hashed TF-IDF input) trained on the cleaned training set. Fastest, most accurate on the training distribution. | `15.1%` `███░░░░░░░░░░░░░░░░░` | **0.55** `███████████░░░░░░░░░` |
-| **Specialist** ([`specialist_agent.py`](agents/specialist_agent.py)) | A LoRA-fine-tuned `Llama-3.2-3B`, served serverlessly on Modal (scales to zero when idle). | `32.3%` `██████░░░░░░░░░░░░░░` | **0.30** `██████░░░░░░░░░░░░░░` |
-| **Frontier / RAG** ([`frontier_agent.py`](agents/frontier_agent.py)) | Embeds the product, retrieves the 5 nearest neighbours from a 400k-item ChromaDB catalog, and asks an LLM to estimate a price given that context. | `77.7%` `████████████████░░░░` | **0.15** `███░░░░░░░░░░░░░░░░░` |
+| **Neural Network** ([`deep_neural_network.py`](agents/deep_neural_network.py)) | A local PyTorch DNN (10 residual blocks, hashed TF-IDF input) trained on the cleaned training set. Fastest, most accurate on the training distribution. | `15.1%` `███░░░░░░░░░░░░░░░░░` | **0.35** `███████░░░░░░░░░░░░` |
+| **Specialist** ([`specialist_agent.py`](agents/specialist_agent.py)) | A LoRA-fine-tuned `Llama-3.2-3B`, served serverlessly on Modal (scales to zero when idle). | `12.3%` `██░░░░░░░░░░░░░░░░░░` | **0.5** `██████████░░░░░░░░░░` |
+| **Frontier / RAG** ([`frontier_agent.py`](agents/frontier_agent.py)) | Embeds the product, retrieves the 5 nearest neighbours from a 400k-item ChromaDB catalog, and asks an LLM to estimate a price given that context. | `17.7%` `████░░░░░░░░░░░░░░░░` | **0.15** `███░░░░░░░░░░░░░░░░░` |
 
 \* Median absolute percentage error on a held-out split of the *training* distribution
 (`notebooks/04_model_comparison.ipynb`). This is meaningfully better than what any of the
