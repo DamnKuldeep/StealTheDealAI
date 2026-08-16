@@ -17,7 +17,7 @@
 - [Architecture](#architecture)
   - [System overview](#system-overview)
   - [The three price estimators](#the-three-price-estimators)
-  - [A scan cycle, step by step](#a-scan-cycle-step-by-step)
+  - [Follow one product through the pipeline](#follow-one-product-through-the-pipeline)
   - [Keeping the ensemble honest](#keeping-the-ensemble-honest)
   - [Staying inside NIM's rate limits](#staying-inside-nims-rate-limits)
   - [Three ways to run it](#three-ways-to-run-it)
@@ -33,14 +33,20 @@
 
 ## What this is
 
-StealTheDeal AI is a personal project that hunts for underpriced products on Amazon India
-and tells you about the good ones before anyone else notices. It's not a single model —
-it's a small pipeline of cooperating agents: one that crawls real search results, one that
-picks out the interesting candidates, and three independent estimators (a RAG pipeline over
-a 400k-product catalog, a fine-tuned LLM, and a local neural network) that each form their
-own opinion of what a product is actually worth. When their combined, sanity-checked opinion
-says an item is worth meaningfully more than what it's listed for, you get a Telegram
-notification with the numbers to back it up.
+StealTheDeal AI is a **multi-agent system** — nine small, specialized agents that each do
+one job well, cooperating to hunt down underpriced products on Amazon India and tell you
+about the good ones before anyone else notices. There's no single "the model" here; that's
+the point. A crawler reads real listings, a scanner picks out what's worth a closer look,
+three independent estimators each form their own opinion of what a product is actually
+worth without seeing each other's answer, and a planning agent plays skeptic before anything
+gets called a steal.
+
+Think of it less like one AI and more like a small team with a clear division of labour: one
+member goes out and gathers information, a few specialists each independently size up what
+they've found, and one person makes the final call by cross-checking everyone's opinion
+against the facts before deciding it's worth telling you about. That's the shape of the
+whole project — see [it happen step by step](#follow-one-product-through-the-pipeline)
+below.
 
 It started as an extended version of the "Price is Right" project from the *LLM
 Engineering* course, and grew into something considerably more involved: live web crawling
@@ -78,62 +84,40 @@ the page, rather than taking one model's word for it.
 
 ### System overview
 
-Every agent in this pipeline has one job. The diagram below shows how a product goes from
-"a row in an Amazon search result" to "a Telegram message on your phone," and nothing here
-skips a step — the same objects (prices, URLs, estimates) flow through unchanged from where
-they're first read to where they're finally displayed.
+Nine agents, each with one job, in a straight line from "product listed on Amazon" to
+"notification on your phone." The three estimators run side by side and never see each
+other's answer — everything downstream of them exists to cross-check what they say before
+trusting it.
 
 ```mermaid
-flowchart TD
-    subgraph Entry["Entry points — run one at a time"]
-        direction LR
-        E1["app.py<br/>manual checker"]
-        E2["price_is_right.py<br/>autonomous dashboard"]
-        E3["deal_agent_framework.py<br/>headless loop"]
-    end
+flowchart LR
+    Crawler["🌐 Web Crawler"] --> Scanner["🔎 Scanner Agent"]
+    Scanner --> Ensemble["🧮 Ensemble Agent"]
 
-    E2 --> PA
-    E3 --> PA
+    Ensemble --> RAG["📚 RAG Agent"]
+    Ensemble --> Specialist["🤖 Specialist Agent"]
+    Ensemble --> DNN["🧠 Neural Network Agent"]
 
-    PA["Planning Agent<br/>orchestrates + adjudicates"]
-    SC["Scanner Agent"]
-    WC["Web Crawler<br/>(crawl4ai)"]
-    AMZ[("amazon.in<br/>search results")]
+    RAG --> Planner["📋 Planning Agent"]
+    Specialist --> Planner
+    DNN --> Planner
 
-    PA -->|"scan()"| SC
-    SC -->|"crawl_deal_sources()"| WC
-    WC <-->|"DOM: .a-price, .a-text-price"| AMZ
-    WC -->|"products, DOM-exact prices"| SC
-
-    NIM1{{"NIM LLM<br/>picks + describes<br/>— never prices"}}
-    SC <--> NIM1
-
-    SC -->|"Deal objects<br/>(price always from DOM)"| PA
-
-    PA -->|"process(deal)<br/>up to 3 concurrently"| EA["Ensemble Agent"]
-    PP["Preprocessor<br/>(NIM LLM)"]
-    EA --> PP
-
-    FA["Frontier / RAG Agent<br/>ChromaDB (400k products) + NIM"]
-    SA["Specialist Agent<br/>fine-tuned Llama-3.2-3B on Modal"]
-    NA["Neural Network Agent<br/>local PyTorch DNN"]
-
-    EA -->|concurrently| FA
-    EA -->|concurrently| SA
-    EA -->|concurrently| NA
-
-    FA -->|estimate| EA
-    SA -->|estimate| EA
-    NA -->|estimate| EA
-
-    EA -->|"outlier-filtered,<br/>weighted estimate"| PA
-    PA -->|"clamp + threshold<br/>(qualifies_as_steal)"| MA["Messaging Agent"]
-    MA -->|Telegram| TG[("📱 your phone")]
-
-    SD[("SeenDealStore<br/>seen_deals.json")]
-    SD -.->|"already notified?"| SC
-    PA -.->|"mark notified"| SD
+    Planner -->|"genuine steal"| Messenger["📨 Messaging Agent"]
+    Messenger --> Phone["📱 Telegram"]
 ```
+
+- **Web Crawler** reads live Amazon India search results.
+- **Scanner Agent** picks out the interesting products from what came back.
+- **Ensemble Agent** hands each one to all three estimators at once.
+- **RAG**, **Specialist**, and **Neural Network** agents each independently guess a fair
+  price — one from a product catalog, one from a fine-tuned LLM, one from a local model.
+- **Planning Agent** combines their answers, checks the result against reality, and decides
+  if it's a genuine steal.
+- **Messaging Agent** sends the Telegram alert, only if it survived that check.
+
+(A ninth agent, the **Preprocessor**, sits inside the Ensemble step, normalizing each
+product's description before the estimators see it — left off the diagram to keep the shape
+of the pipeline easy to follow at a glance.)
 
 ### The three price estimators
 
@@ -158,62 +142,40 @@ retrieves from an independent catalog. They were set from these measured numbers
 picked by hand — an earlier version had them almost backwards (RAG at 0.35, DNN at 0.45),
 which dragged ensemble estimates well off the mark.
 
-### A scan cycle, step by step
+### Follow one product through the pipeline
 
-This is what happens, in order, every time a scan runs — whether it's triggered by clicking
-**Start Scanning**, by the dashboard's recurring timer, or by the headless loop.
+Here's what a single scan actually looks like, told from the product's point of view rather
+than the code's.
 
-```mermaid
-sequenceDiagram
-    participant T as Timer / Start button
-    participant PA as Planning Agent
-    participant SC as Scanner Agent
-    participant WC as Web Crawler
-    participant NIM as NIM (LLM)
-    participant EA as Ensemble Agent
-    participant RAG as Frontier / RAG
-    participant SP as Specialist (Modal)
-    participant DNN as Neural Network
-    participant MA as Messaging Agent
-    participant TG as Telegram
+It starts with the **Web Crawler** opening a handful of real Amazon India search pages —
+"wireless earbuds," "gaming laptop," whatever queries got picked at random this time — and
+reading every result straight off the page: title, current price, struck-through list
+price, all pulled directly out of the HTML, never guessed. Out of everything that comes
+back, the **Scanner Agent** hands the interesting candidates to an LLM, which picks a
+handful and writes a plain description of each one — but is never, ever asked for a price.
+That number always comes from what the Crawler already read off the page.
 
-    T->>PA: process()
-    PA->>SC: scan(seen_store)
-    SC->>WC: crawl_deal_sources()
-    WC-->>SC: products, DOM-exact prices
-    SC->>NIM: pick + describe top candidates
-    NIM-->>SC: index + description only — never a price
-    SC-->>PA: Deal objects
+Each surviving candidate becomes a `Deal`, and a few move through the rest of the pipeline
+at once. For each one, the **Ensemble Agent** wakes up its three estimators simultaneously:
+the **RAG Agent** searches a 400,000-product catalog for similar items and reasons about a
+fair price from what it finds; the **Specialist Agent** — a small LLM fine-tuned
+specifically on price data — answers from a GPU running on Modal; and the **Neural Network
+Agent** runs a local PyTorch model right here on this machine. None of them see each other's
+answer.
 
-    Note over PA,EA: up to 3 deals evaluated concurrently
-    PA->>EA: process(deal)
-    EA->>NIM: Preprocessor normalizes the deal into an Item
+When all three come back, the Ensemble Agent doesn't just average them — it looks for the
+odd one out. If one estimator is wildly off from where the other two agree, it gets dropped
+before the average is taken. What's left goes to the **Planning Agent**, whose whole job is
+to be the skeptic: it checks the estimate against the price actually printed on the page,
+and if the number only looked good *because* it needed clamping down to reality, the deal is
+quietly dropped — no matter how big the discount looked a moment earlier.
 
-    par RAG
-        EA->>RAG: estimate(item)
-    and Specialist
-        EA->>SP: estimate(item)
-    and DNN
-        EA->>DNN: estimate(item)
-    end
+Only when an estimate survives all of that — genuinely, independently, worth meaningfully
+more than what it costs right now — does the **Messaging Agent** send a Telegram
+notification with the receipts: what it's listed at, what the seller claims it's normally
+worth, and what three independent models think it's actually worth.
 
-    RAG-->>EA: estimate
-    SP-->>EA: estimate
-    DNN-->>EA: estimate
-    EA->>EA: drop any estimate 4x+ off the<br/>group median, weighted-average the rest
-    EA-->>PA: final estimate
-
-    PA->>PA: clamp to min(list price, 5x price)
-
-    alt clears the discount threshold AND was not capped
-        PA->>MA: send_notifications
-        MA->>TG: Telegram alert
-    else capped, or below threshold
-        PA->>PA: discard — logged, never notified
-    end
-```
-
-A few things worth calling out that aren't obvious from the diagram alone:
+A few things worth calling out that aren't obvious from the story alone:
 
 - **The LLM never touches a price, anywhere in this pipeline.** The Scanner's model picks
   which crawled products are interesting and writes a description; the price attached to
